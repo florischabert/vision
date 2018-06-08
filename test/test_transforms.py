@@ -205,6 +205,14 @@ class Tester(unittest.TestCase):
         assert result.size(2) == width
         assert np.allclose(img.numpy(), result.numpy())
 
+        result = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.RandomCrop((height + 1, width + 1), pad_if_needed=True),
+            transforms.ToTensor(),
+        ])(img)
+        assert result.size(1) == height + 1
+        assert result.size(2) == width + 1
+
     def test_pad(self):
         height = random.randint(10, 32) * 2
         width = random.randint(10, 32) * 2
@@ -234,6 +242,37 @@ class Tester(unittest.TestCase):
 
         # Checking if Padding can be printed as string
         transforms.Pad(padding).__repr__()
+
+    def test_pad_with_non_constant_padding_modes(self):
+        """Unit tests for edge, reflect, symmetric padding"""
+        img = torch.zeros(3, 27, 27).byte()
+        img[:, :, 0] = 1  # Constant value added to leftmost edge
+        img = transforms.ToPILImage()(img)
+        img = F.pad(img, 1, (200, 200, 200))
+
+        # pad 3 to all sidess
+        edge_padded_img = F.pad(img, 3, padding_mode='edge')
+        # First 6 elements of leftmost edge in the middle of the image, values are in order:
+        # edge_pad, edge_pad, edge_pad, constant_pad, constant value added to leftmost edge, 0
+        edge_middle_slice = np.asarray(edge_padded_img).transpose(2, 0, 1)[0][17][:6]
+        assert np.all(edge_middle_slice == np.asarray([200, 200, 200, 200, 1, 0]))
+        assert transforms.ToTensor()(edge_padded_img).size() == (3, 35, 35)
+
+        # Pad 3 to left/right, 2 to top/bottom
+        reflect_padded_img = F.pad(img, (3, 2), padding_mode='reflect')
+        # First 6 elements of leftmost edge in the middle of the image, values are in order:
+        # reflect_pad, reflect_pad, reflect_pad, constant_pad, constant value added to leftmost edge, 0
+        reflect_middle_slice = np.asarray(reflect_padded_img).transpose(2, 0, 1)[0][17][:6]
+        assert np.all(reflect_middle_slice == np.asarray([0, 0, 1, 200, 1, 0]))
+        assert transforms.ToTensor()(reflect_padded_img).size() == (3, 33, 35)
+
+        # Pad 3 to left, 2 to top, 2 to right, 1 to bottom
+        symmetric_padded_img = F.pad(img, (3, 2, 2, 1), padding_mode='symmetric')
+        # First 6 elements of leftmost edge in the middle of the image, values are in order:
+        # sym_pad, sym_pad, sym_pad, constant_pad, constant value added to leftmost edge, 0
+        symmetric_middle_slice = np.asarray(symmetric_padded_img).transpose(2, 0, 1)[0][17][:6]
+        assert np.all(symmetric_middle_slice == np.asarray([0, 1, 200, 200, 1, 0]))
+        assert transforms.ToTensor()(symmetric_padded_img).size() == (3, 32, 34)
 
     def test_pad_raises_with_invalid_pad_sequence_len(self):
         with self.assertRaises(ValueError):
@@ -364,6 +403,12 @@ class Tester(unittest.TestCase):
             output = trans(ndarray)
             expected_output = ndarray.transpose((2, 0, 1))
             assert np.allclose(output.numpy(), expected_output)
+
+        # separate test for mode '1' PIL images
+        input_data = torch.ByteTensor(1, height, width).bernoulli_()
+        img = transforms.ToPILImage()(input_data.mul(255)).convert('1')
+        output = trans(img)
+        assert np.allclose(input_data.numpy(), output.numpy())
 
     @unittest.skipIf(accimage is None, 'accimage not available')
     def test_accimage_to_tensor(self):
@@ -607,7 +652,7 @@ class Tester(unittest.TestCase):
         # Checking if RandomHorizontalFlip can be printed as string
         transforms.RandomHorizontalFlip().__repr__()
 
-    @unittest.skipIf(stats is None, 'scipt.stats is not available')
+    @unittest.skipIf(stats is None, 'scipy.stats is not available')
     def test_normalize(self):
         def samples_from_standard_normal(tensor):
             p_value = stats.kstest(list(tensor.view(-1)), 'norm', args=(0, 1)).pvalue

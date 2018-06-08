@@ -22,7 +22,7 @@ class LSUNClass(data.Dataset):
                              readahead=False, meminit=False)
         with self.env.begin(write=False) as txn:
             self.length = txn.stat()['entries']
-        cache_file = '_cache_' + root.replace('/', '_')
+        cache_file = '_cache_' + ''.join(c for c in root if c in string.ascii_letters)
         if os.path.isfile(cache_file):
             self.keys = pickle.load(open(cache_file, "rb"))
         else:
@@ -85,7 +85,7 @@ class LSUN(data.Dataset):
                 classes = [classes]
             else:
                 classes = [c + '_' + classes for c in categories]
-        if type(classes) == list:
+        elif type(classes) == list:
             for c in classes:
                 c_short = c.split('_')
                 c_short.pop(len(c_short) - 1)
